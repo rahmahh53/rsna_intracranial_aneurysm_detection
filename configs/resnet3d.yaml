@@ -1,0 +1,29 @@
+seed: 42
+
+data:
+  labels_csv: /kaggle/input/rsna-intracranial-aneurysm-detection/train.csv
+  series_root: /kaggle/input/rsna-intracranial-aneurysm-detection/series
+  cache_dir: /kaggle/working/rsna_cache_resnet3d
+  max_series: 3000
+  val_size: 0.15
+
+preprocessing:
+  target_spacing: 1.0
+  final_size: [160, 160, 160]
+  hu_window: [-100.0, 700.0]
+
+training:
+  model_name: resnet3d18
+  batch_size: 1
+  epochs: 25
+  learning_rate: 0.0003
+  weight_decay: 0.0001
+  patience: 7
+  num_workers: 2
+  use_amp: true
+
+outputs:
+  output_dir: /kaggle/working/outputs
+  best_checkpoint: /kaggle/working/outputs/best_resnet3d.pth
+  torchscript_model: /kaggle/working/outputs/resnet3d_model.pt
+  metrics_csv: /kaggle/working/outputs/training_metrics.csv
