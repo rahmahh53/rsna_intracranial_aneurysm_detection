@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.env
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Data files - do not commit raw medical/Kaggle data
+data/
+cache/
+rsna_cache*/
+*.dcm
+
+# Model weights / checkpoints - usually too large for GitHub
+*.pt
+*.pth
+*.ckpt
+*.onnx
+
+# Outputs
+outputs/
+reports/figures/*.png
+reports/metrics/*.csv
+
+# Logs
+*.log
+wandb/
+mlruns/
