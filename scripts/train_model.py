@@ -10,6 +10,7 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import yaml
+
 from sklearn.model_selection import train_test_split
 from torch.cuda.amp import GradScaler, autocast
 from torch.utils.data import DataLoader, Dataset
@@ -20,6 +21,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(PROJECT_ROOT))
 
 from src.constants import ID_COL, LABEL_COLS, ANEURYSM_NAME
+from src.data_selection import select_series
 from src.metrics import multilabel_macro_auc, per_label_auc
 from src.models import build_model
 
@@ -78,14 +80,14 @@ class CachedRSNADataset(Dataset):
         x shape:
             (1, D, H, W)
         """
-        if random.random() < 0.5:
-            x = torch.flip(x, dims=[1])  # depth
+        #if random.random() < 0.5:
+        #    x = torch.flip(x, dims=[1])  # depth
 
-        if random.random() < 0.5:
-            x = torch.flip(x, dims=[2])  # height
+        #if random.random() < 0.5:
+        #    x = torch.flip(x, dims=[2])  # height
 
-        if random.random() < 0.5:
-            x = torch.flip(x, dims=[3])  # width
+        #if random.random() < 0.5:
+        #    x = torch.flip(x, dims=[3])  # width
 
         if random.random() < 0.5:
             scale = 1.0 + random.uniform(-0.10, 0.10)
@@ -98,29 +100,6 @@ class CachedRSNADataset(Dataset):
 def load_config(config_path: str) -> dict:
     with open(config_path, "r") as f:
         return yaml.safe_load(f)
-
-
-def prepare_labels(cfg: dict) -> pd.DataFrame:
-    labels_csv = cfg["data"]["labels_csv"]
-    max_series = cfg["data"]["max_series"]
-
-    labels = pd.read_csv(labels_csv)
-    labels = labels[[ID_COL] + LABEL_COLS].dropna().reset_index(drop=True)
-
-    if max_series is not None and len(labels) > max_series:
-        positives = labels[labels[ANEURYSM_NAME] == 1]
-        negatives = labels[labels[ANEURYSM_NAME] == 0]
-
-        if len(positives) >= max_series:
-            labels = positives.sample(n=max_series, random_state=cfg["seed"])
-        else:
-            n_neg = max_series - len(positives)
-            negatives = negatives.sample(n=n_neg, random_state=cfg["seed"])
-            labels = pd.concat([positives, negatives], axis=0)
-
-        labels = labels.sample(frac=1.0, random_state=cfg["seed"]).reset_index(drop=True)
-
-    return labels
 
 
 def filter_to_cached(labels: pd.DataFrame, cache_dir: str) -> pd.DataFrame:
@@ -189,7 +168,7 @@ def train(cfg: dict):
     output_dir = cfg["outputs"]["output_dir"]
     os.makedirs(output_dir, exist_ok=True)
 
-    labels = prepare_labels(cfg)
+    labels = select_series(cfg)
     labels = filter_to_cached(labels, cfg["data"]["cache_dir"])
 
     if len(labels) == 0:

@@ -12,6 +12,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(PROJECT_ROOT))
 
 from src.constants import ID_COL, LABEL_COLS, ANEURYSM_NAME
+from src.data_selection import select_series
 from src.preprocess import preprocess_series
 
 
@@ -20,30 +21,8 @@ def load_config(config_path: str) -> dict:
         return yaml.safe_load(f)
 
 
-def prepare_labels(cfg: dict) -> pd.DataFrame:
-    labels = pd.read_csv(cfg["data"]["labels_csv"])
-    labels = labels[[ID_COL] + LABEL_COLS].dropna().reset_index(drop=True)
-
-    max_series = cfg["data"].get("max_series", None)
-
-    if max_series is not None and len(labels) > max_series:
-        positives = labels[labels[ANEURYSM_NAME] == 1]
-        negatives = labels[labels[ANEURYSM_NAME] == 0]
-
-        if len(positives) >= max_series:
-            labels = positives.sample(n=max_series, random_state=cfg["seed"])
-        else:
-            n_negatives = max_series - len(positives)
-            negatives = negatives.sample(n=n_negatives, random_state=cfg["seed"])
-            labels = pd.concat([positives, negatives], axis=0)
-
-        labels = labels.sample(frac=1.0, random_state=cfg["seed"]).reset_index(drop=True)
-
-    return labels
-
-
 def build_cache(cfg: dict, overwrite: bool = False) -> None:
-    labels = prepare_labels(cfg)
+    labels = select_series(cfg)
 
     series_root = cfg["data"]["series_root"]
     cache_dir = cfg["data"]["cache_dir"]
@@ -53,6 +32,19 @@ def build_cache(cfg: dict, overwrite: bool = False) -> None:
     hu_window = tuple(cfg["preprocessing"]["hu_window"])
 
     os.makedirs(cache_dir, exist_ok=True)
+
+    metadata_path = os.path.join(cache_dir, "metadata.csv")
+    failures_path = os.path.join(cache_dir, "failures.csv")
+
+    if os.path.exists(metadata_path):
+        existing_metadata = pd.read_csv(metadata_path)
+    else:
+        existing_metadata = pd.DataFrame()
+
+    if os.path.exists(failures_path):
+        existing_failures = pd.read_csv(failures_path)
+    else:
+        existing_failures = pd.DataFrame()
 
     metadata_rows = []
     failed_rows = []
@@ -94,21 +86,16 @@ def build_cache(cfg: dict, overwrite: bool = False) -> None:
                 }
             )
 
-    metadata_path = os.path.join(cache_dir, "metadata.csv")
-    failures_path = os.path.join(cache_dir, "failures.csv")
 
-    if metadata_rows:
-        pd.DataFrame(metadata_rows).to_csv(metadata_path, index=False)
-        print("Saved metadata:", metadata_path)
+    new_metadata = pd.DataFrame(metadata_rows)
+    combined_metadata = pd.concat([existing_metadata, new_metadata], ignore_index=True)
+    combined_metadata = combined_metadata.drop_duplicates(subset=[ID_COL], keep="last")
+    combined_metadata.to_csv(metadata_path, index=False)
 
-    if failed_rows:
-        pd.DataFrame(failed_rows).to_csv(failures_path, index=False)
-        print("Saved failures:", failures_path)
-
-    print("Finished cache build.")
-    print("Successful:", len(metadata_rows))
-    print("Failed:", len(failed_rows))
-
+    new_failures = pd.DataFrame(failed_rows)
+    combined_failures = pd.concat([existing_failures, new_failures], ignore_index=True)
+    combined_failures = combined_failures.drop_duplicates(subset=[ID_COL], keep="last")
+    combined_failures.to_csv(failures_path, index=False)
 
 def main():
     parser = argparse.ArgumentParser()
