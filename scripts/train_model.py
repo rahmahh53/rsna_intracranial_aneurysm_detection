@@ -352,7 +352,7 @@ def main():
     parser.add_argument(
         "--config",
         type=str,
-        default="configs/resnet3d_baseline.yaml",
+        default="configs/resnet3d.yaml",
     )
     args = parser.parse_args()
 
