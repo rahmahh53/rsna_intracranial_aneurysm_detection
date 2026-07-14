@@ -27,13 +27,13 @@ def select_series(cfg: dict) -> pd.DataFrame:
            raise ValueError("Not enough negative samples for balanced sampling")
 
         positive_sample = positives.sample(n=n_positive, random_state=seed)
-        negative_sample = negatives.sample(n=n_negatives, random_state=seed)
+        negative_sample = negatives.sample(n=n_negative, random_state=seed)
         selected = pd.concat([positive_sample, negative_sample], axis=0)
 
         return selected.sample(frac=1.0, random_state=seed).reset_index(drop=True)
 
     if strategy == "stratified":
-        _, selected = train_test_split(labels. test_size=max_series, stratify=labels[ANEURYSM_NAME], random_state=seed)
+        _, selected = train_test_split(labels, test_size=max_series, stratify=labels[ANEURYSM_NAME], random_state=seed)
         return selected.reset_index(drop=True)
 
     if strategy == "all":
