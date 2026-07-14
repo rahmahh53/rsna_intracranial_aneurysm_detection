@@ -26,8 +26,8 @@ def select_series(cfg: dict) -> pd.DataFrame:
         if len(negatives) < n_negative:
            raise ValueError("Not enough negative samples for balanced sampling")
 
-        positive sample = positives.sample(n=n_positive, random_state=seed)
-        negative_sample = negatives = negatives.sample(n=n_negatives, random_state=seed)
+        positive_sample = positives.sample(n=n_positive, random_state=seed)
+        negative_sample = negatives.sample(n=n_negatives, random_state=seed)
         selected = pd.concat([positive_sample, negative_sample], axis=0)
 
         return selected.sample(frac=1.0, random_state=seed).reset_index(drop=True)

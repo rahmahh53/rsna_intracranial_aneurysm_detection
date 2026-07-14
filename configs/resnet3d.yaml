@@ -1,8 +1,8 @@
 seed: 42
 
 data:
-  labels_csv: /kaggle/input/rsna-intracranial-aneurysm-detection/train.csv
-  series_root: /kaggle/input/rsna-intracranial-aneurysm-detection/series
+  labels_csv: /kaggle/input/competitions/rsna-intracranial-aneurysm-detection/train.csv
+  series_root: /kaggle/input/competitions/rsna-intracranial-aneurysm-detection/series
   cache_dir: /kaggle/working/rsna_cache_resnet3d
   max_series: 3000
   val_size: 0.15
