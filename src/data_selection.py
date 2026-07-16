@@ -11,7 +11,7 @@ def select_series(cfg: dict) -> pd.DataFrame:
     strategy = cfg["data"].get("sampling_strategy", "all")
     seed = cfg["seed"]
 
-    if max_series is None and len(labels) <= max_series:
+    if max_series is None or len(labels) <= max_series:
         return labels
 
     positives = labels[labels[ANEURYSM_NAME] == 1]

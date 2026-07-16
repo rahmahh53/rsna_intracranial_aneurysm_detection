@@ -27,6 +27,9 @@ def export_torchscript(config_path: str):
     model = build_model(
         model_name=cfg["training"]["model_name"],
         n_outputs=len(LABEL_COLS),
+        backbone=cfg["training"].get("backbone", "resnet34"),
+        dropout=cfg["training"].get("dropout", 0.3),
+        pretrained=False
     )
 
     checkpoint = torch.load(checkpoint_path, map_location="cpu")

@@ -61,8 +61,6 @@ class CachedRSNADataset(Dataset):
 
         x = torch.load(tensor_path, map_location="cpu")
 
-        # Original cache may save (1, 1, D, H, W).
-        # DataLoader adds batch dimension, so we return (1, D, H, W).
         if x.ndim == 5:
             x = x.squeeze(0)
 
@@ -73,28 +71,31 @@ class CachedRSNADataset(Dataset):
 
         return x, y
 
-    def augment(self, x: torch.Tensor) -> torch.Tensor:
+    def augment(self, x: torch.Tensor, y: torch.Tensor):
         """
         Lightweight 3D augmentation.
 
         x shape:
             (1, D, H, W)
         """
-        #if random.random() < 0.5:
-        #    x = torch.flip(x, dims=[1])  # depth
+        if random.random() < 0.5:
+            x = torch.flip(x, dims=[1])  # depth
 
-        #if random.random() < 0.5:
-        #    x = torch.flip(x, dims=[2])  # height
-
-        #if random.random() < 0.5:
-        #    x = torch.flip(x, dims=[3])  # width
+        if random.random() < 0.5:
+            x = torch.flip(x, dims=[3])  # width flip
+            y = y.clone()
+            for i, j in LR_SWAP_INDEX_PAIRS:
+                y[i], y[j] = y[j].item(), y[i].item()
 
         if random.random() < 0.5:
             scale = 1.0 + random.uniform(-0.10, 0.10)
             shift = random.uniform(-0.05, 0.05)
             x = x * scale + shift
 
-        return x
+        if random.random() < 0.5:
+            x = x + torch.randn_like(x) * 0.02
+
+        return x, y
 
 
 def load_config(config_path: str) -> dict:
@@ -156,42 +157,36 @@ def run_validation(model, valid_loader, criterion, device, use_amp: bool):
     macro_auc = multilabel_macro_auc(all_targets, all_probs)
     label_aucs = per_label_auc(all_targets, all_probs, LABEL_COLS)
 
-    return valid_loss, macro_auc, label_aucs
+    return valid_loss, macro_auc, label_aucs, all_probs, all_targets
 
 
-def train(cfg: dict):
-    set_seed(cfg["seed"])
+def train_one_fold(
+    cfg: dict,
+    df_train: pd.DataFrame,
+    df_valid: pd.DataFrame,
+    checkpoint_path: str,
+    metrics_csv_path: str,
+    fold_label: str = "single",
+):
+    """
+    Train a single model on one train/valid split.
 
+    Shared by both `train()` (single held-out split) and the k-fold CV script
+    (`train_kfold.py`), so the two never drift apart in training logic.
+
+    Returns a dict with best_auc, history, and out-of-fold predictions
+    (probs/targets/series ids) for the validation split, which the k-fold
+    script aggregates across folds.
+    """
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    print("Using device:", device)
-
-    output_dir = cfg["outputs"]["output_dir"]
-    os.makedirs(output_dir, exist_ok=True)
-
-    labels = select_series(cfg)
-    labels = filter_to_cached(labels, cfg["data"]["cache_dir"])
-
-    if len(labels) == 0:
-        raise RuntimeError(
-            "No usable cached tensors found. You need to build the cache before training."
-        )
-
-    y_strat = labels[ANEURYSM_NAME].astype(int)
-
-    df_train, df_valid = train_test_split(
-        labels,
-        test_size=cfg["data"]["val_size"],
-        random_state=cfg["seed"],
-        stratify=y_strat,
-    )
 
     df_train = df_train.reset_index(drop=True)
     df_valid = df_valid.reset_index(drop=True)
 
-    print("Train size:", len(df_train))
-    print("Valid size:", len(df_valid))
-    print("Train aneurysm prevalence:", df_train[ANEURYSM_NAME].mean())
-    print("Valid aneurysm prevalence:", df_valid[ANEURYSM_NAME].mean())
+    print(f"[{fold_label}] Train size:", len(df_train))
+    print(f"[{fold_label}] Valid size:", len(df_valid))
+    print(f"[{fold_label}] Train aneurysm prevalence:", df_train[ANEURYSM_NAME].mean())
+    print(f"[{fold_label}] Valid aneurysm prevalence:", df_valid[ANEURYSM_NAME].mean())
 
     train_ds = CachedRSNADataset(
         df=df_train,
@@ -224,6 +219,9 @@ def train(cfg: dict):
     model = build_model(
         model_name=cfg["training"]["model_name"],
         n_outputs=len(LABEL_COLS),
+        backbone=cfg["training"].get("backbone", "resnet34"),
+        dropout=cfg["training"].get("dropout", 0.3),
+        pretrained=cfg["training"].get("pretrained", True),
     ).to(device)
 
     pos_weight = compute_pos_weight(df_train, device)
@@ -247,13 +245,15 @@ def train(cfg: dict):
 
     best_auc = -1.0
     best_epoch = 0
+    best_probs = None
+    best_targets = None
     history = []
 
     for epoch in range(1, cfg["training"]["epochs"] + 1):
         model.train()
         train_loss = 0.0
 
-        pbar = tqdm(train_loader, desc=f"Epoch {epoch}")
+        pbar = tqdm(train_loader, desc=f"[{fold_label}] Epoch {epoch}")
 
         for xb, yb in pbar:
             xb = xb.to(device).float()
@@ -274,7 +274,7 @@ def train(cfg: dict):
 
         train_loss /= max(1, len(train_ds))
 
-        valid_loss, valid_auc, label_aucs = run_validation(
+        valid_loss, valid_auc, label_aucs, valid_probs, valid_targets = run_validation(
             model=model,
             valid_loader=valid_loader,
             criterion=criterion,
@@ -294,7 +294,7 @@ def train(cfg: dict):
         history.append(row)
 
         print(
-            f"Epoch {epoch}: "
+            f"[{fold_label}] Epoch {epoch}: "
             f"train_loss={train_loss:.4f} "
             f"valid_loss={valid_loss:.4f} "
             f"valid_macro_auc={valid_auc:.4f}"
@@ -303,6 +303,8 @@ def train(cfg: dict):
         if valid_auc > best_auc:
             best_auc = valid_auc
             best_epoch = epoch
+            best_probs = valid_probs
+            best_targets = valid_targets
 
             checkpoint = {
                 "epoch": epoch,
@@ -313,18 +315,62 @@ def train(cfg: dict):
                 "label_aucs": label_aucs,
             }
 
-            torch.save(checkpoint, cfg["outputs"]["best_checkpoint"])
-            print(f"Saved new best checkpoint: AUC={best_auc:.4f}")
+            torch.save(checkpoint, checkpoint_path)
+            print(f"[{fold_label}] Saved new best checkpoint: AUC={best_auc:.4f}")
 
         if epoch - best_epoch >= cfg["training"]["patience"]:
-            print(f"Early stopping at epoch {epoch}")
+            print(f"[{fold_label}] Early stopping at epoch {epoch}")
             break
 
     metrics_df = pd.DataFrame(history)
-    metrics_df.to_csv(cfg["outputs"]["metrics_csv"], index=False)
-    print("Saved training metrics to:", cfg["outputs"]["metrics_csv"])
-    print("Best validation macro AUC:", best_auc)
+    metrics_df.to_csv(metrics_csv_path, index=False)
+    print(f"[{fold_label}] Saved training metrics to:", metrics_csv_path)
+    print(f"[{fold_label}] Best validation macro AUC:", best_auc)
 
+    return {
+        "best_auc": best_auc,
+        "history": history,
+        "series_ids": df_valid[ID_COL].tolist(),
+        "oof_probs": best_probs,
+        "oof_targets": best_targets,
+    }
+
+
+
+def train(cfg: dict):
+    set_seed(cfg["seed"])
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print("Using device:", device)
+
+    output_dir = cfg["outputs"]["output_dir"]
+    os.makedirs(output_dir, exist_ok=True)
+
+    labels = select_series(cfg)
+    labels = filter_to_cached(labels, cfg["data"]["cache_dir"])
+
+    if len(labels) == 0:
+        raise RuntimeError(
+            "No usable cached tensors found. You need to build the cache before training."
+        )
+
+    y_strat = labels[ANEURYSM_NAME].astype(int)
+
+    df_train, df_valid = train_test_split(
+        labels,
+        test_size=cfg["data"]["val_size"],
+        random_state=cfg["seed"],
+        stratify=y_strat,
+    )
+
+    train_one_fold(
+        cfg=cfg,
+        df_train=df_train,
+        df_valid=df_valid,
+        checkpoint_path=cfg["outputs"]["best_checkpoint"],
+        metrics_csv_path=cfg["outputs"]["metrics_csv"],
+        fold_label="single",
+    )
 
 def main():
     parser = argparse.ArgumentParser()

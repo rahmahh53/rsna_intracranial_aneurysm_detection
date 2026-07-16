@@ -6,7 +6,7 @@ data:
   cache_dir: /kaggle/working/rsna_cache_resnet3d
   max_series: 3000
   val_size: 0.15
-  sampling_strategy: balanced
+  sampling_strategy: stratified
 
 preprocessing:
   target_spacing: 1.0
@@ -14,7 +14,11 @@ preprocessing:
   hu_window: [-100.0, 700.0]
 
 training:
-  model_name: resnet3d18
+  model_name: resnet3d_inflated
+  backbone: resnet34
+  pretrained: true
+  dropout: 0.3
+  n_folds: 5
   batch_size: 1
   epochs: 25
   learning_rate: 0.0003
