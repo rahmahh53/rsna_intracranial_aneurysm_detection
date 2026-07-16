@@ -52,7 +52,7 @@ rsna_project/
 
 ## Model
 
-Two architectures are available, selected via `training.model_name` in the config:
+There are two  architectures are available, selected via `training.model_name` in the config:
 
 * **`resnet3d18`** — a compact 3D ResNet trained entirely from scratch.
 * **`resnet3d_inflated`** — an ImageNet-pretrained torchvision `resnet18`/`resnet34` (`training.backbone`), inflated into 3D via I3D-style weight inflation (Carreira & Zisserman, 2017). Every 2D conv/batchnorm is converted to its 3D equivalent, with pretrained 2D filters bootstrapped along the new depth axis. This gives the network a head start over random initialization, which matters given how little labeled 3D medical data is available relative to ImageNet. Requires internet access at training time to download pretrained weights (set `training.pretrained: false` to skip this and initialize randomly instead).
