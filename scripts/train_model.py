@@ -20,7 +20,7 @@ from tqdm import tqdm
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(PROJECT_ROOT))
 
-from src.constants import ID_COL, LABEL_COLS, ANEURYSM_NAME
+from src.constants import ID_COL, LABEL_COLS, ANEURYSM_NAME, LR_SWAP_INDEX_PAIRS
 from src.data_selection import select_series
 from src.metrics import multilabel_macro_auc, per_label_auc
 from src.models import build_model
@@ -67,7 +67,7 @@ class CachedRSNADataset(Dataset):
         y = torch.tensor(self.labels[idx], dtype=torch.float32)
 
         if self.train:
-            x = self.augment(x)
+            x, y = self.augment(x, y)
 
         return x, y
 
